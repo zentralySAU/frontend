@@ -30,7 +30,7 @@ vi.mock("../../../src/components/ha-button", async () => {
 
   customElements.define("ha-button", class extends lit.LitElement {});
 
-  return {};
+  return { HaButton: customElements.get("ha-button") };
 });
 
 vi.mock("../../../src/components/ha-dialog-footer", () => {
