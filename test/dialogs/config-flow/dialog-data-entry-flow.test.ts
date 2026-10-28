@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ConfigEntry } from "../../../src/data/config_entries";
 import type { HaDialog } from "../../../src/components/ha-dialog";
 import type {
   DataEntryFlowProgressedEvent,
@@ -9,7 +10,10 @@ import type {
   DataEntryFlowStepProgress,
 } from "../../../src/data/data_entry_flow";
 import "../../../src/dialogs/config-flow/dialog-data-entry-flow";
-import type { FlowConfig } from "../../../src/dialogs/config-flow/show-dialog-data-entry-flow";
+import type {
+  DataEntryFlowDialogParams,
+  FlowConfig,
+} from "../../../src/dialogs/config-flow/show-dialog-data-entry-flow";
 import type { HomeAssistant } from "../../../src/types";
 
 vi.mock("../../../src/data/auth", () => ({
@@ -24,11 +28,9 @@ vi.mock("../../../src/components/ha-dialog", () => {
 vi.mock("../../../src/components/ha-button", async () => {
   const lit = await import("lit");
 
-  class HaButton extends lit.LitElement {}
+  customElements.define("ha-button", class extends lit.LitElement {});
 
-  customElements.define("ha-button", HaButton);
-
-  return { HaButton };
+  return {};
 });
 
 vi.mock("../../../src/components/ha-dialog-footer", () => {
@@ -152,7 +154,10 @@ const nextTask = () =>
     setTimeout(resolve, 0);
   });
 
-const openDialog = async (initialStep: DataEntryFlowStep = formStep) => {
+const openDialog = async (
+  initialStep: DataEntryFlowStep = formStep,
+  dialogClosedCallback?: DataEntryFlowDialogParams["dialogClosedCallback"]
+) => {
   vi.mocked(flowConfig.createFlow).mockResolvedValueOnce(initialStep);
   const dialog = document.createElement("dialog-data-entry-flow");
   dialog.hass = hass;
@@ -160,6 +165,7 @@ const openDialog = async (initialStep: DataEntryFlowStep = formStep) => {
   await dialog.showDialog({
     startFlowHandler: "test",
     flowConfig,
+    dialogClosedCallback,
   });
   await nextTask();
   await dialog.updateComplete;
@@ -395,4 +401,77 @@ describe("dialog-data-entry-flow progress", () => {
 
     expect(dialog["_step"]).toBeUndefined();
   });
+});
+
+describe("created subentry completion", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    {
+      action: "finish",
+      complete: async (
+        dialog: HTMLElementTagNameMap["dialog-data-entry-flow"]
+      ) => {
+        await dialog
+          .shadowRoot!.querySelector("step-flow-create-entry")!
+          .finish();
+      },
+    },
+    {
+      action: "close",
+      complete: async (
+        dialog: HTMLElementTagNameMap["dialog-data-entry-flow"]
+      ) => {
+        dialog.closeDialog();
+      },
+    },
+  ])(
+    "$action closes native completion without another backend step",
+    async ({ complete }) => {
+      const parent = {
+        entry_id: "parent-entry",
+        domain: "test",
+        title: "Parent",
+        state: "loaded",
+      } as ConfigEntry;
+      hass.callWS = vi
+        .fn()
+        .mockImplementation(async (msg) =>
+          msg.type === "config_entries/get_single"
+            ? { config_entry: parent }
+            : []
+        );
+      const closed = vi.fn();
+      const dialog = await openDialog(
+        {
+          type: "abort",
+          flow_id: "added-child",
+          handler: "test",
+          reason: "child_added",
+          show_device_setup: true,
+          created_subentry: {
+            entry_id: parent.entry_id,
+            subentry_id: "new-child",
+          },
+        },
+        closed
+      );
+      await nextTask();
+      await dialog.updateComplete;
+      await complete(dialog);
+      await nextTask();
+      await dialog.updateComplete;
+      expect(innerDialog(dialog).open).toBe(false);
+      innerDialog(dialog).dispatchEvent(new Event("closed"));
+      expect(closed).toHaveBeenCalledWith({
+        flowFinished: true,
+        entryId: parent.entry_id,
+      });
+      expect(flowConfig.handleFlowStep).not.toHaveBeenCalled();
+      expect(flowConfig.deleteFlow).not.toHaveBeenCalled();
+    }
+  );
 });

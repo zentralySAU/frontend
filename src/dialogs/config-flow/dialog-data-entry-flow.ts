@@ -18,13 +18,16 @@ import {
   subscribeDataEntryFlowProgress,
   subscribeDataEntryFlowProgressed,
 } from "../../data/data_entry_flow";
-import type { DeviceRegistryEntry } from "../../data/device/device_registry";
 import type { RepairsIssue } from "../../data/repairs";
 import { DirtyStateProviderMixin } from "../../mixins/dirty-state-provider-mixin";
 import { haStyleDialog } from "../../resources/styles";
 import type { HomeAssistant } from "../../types";
 import { documentationUrl } from "../../util/documentation-url";
 import { showAlertDialog } from "../generic/show-dialog-box";
+import {
+  getConfigFlowDevices,
+  resolveCreatedSubentry,
+} from "./config-flow-devices";
 import { showConfigFlowDialog } from "./show-dialog-config-flow";
 import type {
   DataEntryFlowDialogParams,
@@ -240,21 +243,7 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
     fireEvent(this, "dialog-closed", { dialog: this.localName });
   }
 
-  private _devices = memoizeOne(
-    (
-      showDevices: boolean,
-      devices: DeviceRegistryEntry[],
-      entry_id?: string,
-      carryOverDevices?: string[]
-    ) =>
-      showDevices && entry_id
-        ? devices.filter(
-            (device) =>
-              device.config_entries.includes(entry_id) ||
-              carryOverDevices?.includes(device.id)
-          )
-        : []
-  );
+  private _devices = memoizeOne(getConfigFlowDevices);
 
   private _getDialogTitle(): string {
     if (this._loading || !this._step || !this._params) {
@@ -285,7 +274,9 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
           this._params.flowConfig.showDevices,
           Object.values(this.hass.devices),
           (this._step.result as ConfigEntry)?.entry_id,
-          this._params.carryOverDevices
+          this._params.carryOverDevices,
+          this._step.created_subentry?.subentry_id,
+          this._step.show_device_setup
         ).length;
         return this.hass.localize(
           `ui.panel.config.integrations.config_flow.${
@@ -492,7 +483,10 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
                                         Object.values(this.hass.devices),
                                         (this._step.result as ConfigEntry)
                                           ?.entry_id,
-                                        this._params.carryOverDevices
+                                        this._params.carryOverDevices,
+                                        this._step.created_subentry
+                                          ?.subentry_id,
+                                        this._step.show_device_setup
                                       )}
                                     ></step-flow-create-entry>
                                   `
@@ -588,7 +582,9 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
           this._params!.flowConfig.showDevices,
           Object.values(this.hass.devices),
           (this._step.result as ConfigEntry)?.entry_id,
-          this._params!.carryOverDevices
+          this._params!.carryOverDevices,
+          this._step.created_subentry?.subentry_id,
+          this._step.show_device_setup
         );
 
         return html`
@@ -650,7 +646,7 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
     }, 250);
     let _step: DataEntryFlowStep;
     try {
-      _step = await step;
+      _step = await resolveCreatedSubentry(this.hass.callWS, await step);
     } catch (err: any) {
       this.closeDialog();
       showAlertDialog(this, {
@@ -688,7 +684,9 @@ class DataEntryFlowDialog extends DirtyStateProviderMixin<
             this._params!.flowConfig.showDevices,
             Object.values(this.hass.devices),
             _step.type === "create_entry" ? _step.result?.entry_id : undefined,
-            this._params!.carryOverDevices
+            this._params!.carryOverDevices,
+            _step.created_subentry?.subentry_id,
+            _step.show_device_setup
           ).map((device) => device.id),
           dialogClosedCallback: this._params!.dialogClosedCallback,
         });

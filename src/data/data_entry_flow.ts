@@ -57,10 +57,17 @@ export interface DataEntryFlowStepExternal {
   translation_domain?: string;
 }
 
+export interface CreatedConfigSubentry {
+  entry_id: string;
+  subentry_id: string;
+}
+
 export interface DataEntryFlowStepCreateEntry<
   TResult extends ConfigEntry | RepairsIssue = ConfigEntry,
 > {
   type: "create_entry";
+  created_subentry?: CreatedConfigSubentry;
+  show_device_setup?: boolean;
   version?: number;
   flow_id: string;
   next_flow?: [FlowType, string]; // [flow_type, flow_id]
@@ -76,6 +83,8 @@ export interface DataEntryFlowStepAbort<
   TResult extends ConfigEntry | RepairsIssue = ConfigEntry,
 > {
   type: "abort";
+  created_subentry?: CreatedConfigSubentry;
+  show_device_setup?: boolean;
   flow_id: string;
   handler: string;
   reason: string;
